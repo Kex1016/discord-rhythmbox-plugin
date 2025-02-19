@@ -125,7 +125,7 @@ class DiscordStatus(GObject.Object, Peas.Activatable):
         title = playing_entry.get_string(RB.RhythmDBPropType.TITLE)
         artist = playing_entry.get_string(RB.RhythmDBPropType.ARTIST)
         duration = playing_entry.get_ulong(RB.RhythmDBPropType.DURATION)
-        image = self.statsfm.fetch(f"{artist} {album}")["items"]["albums"][0]["image"]
+        image = self.statsfm.fetch(f"{album} {artist}")["items"]["albums"][0]["image"]
 
         # If there is anything with less than 2 characters, Discord won't show our presence
         # So, lets add a cool empty unicode character to the end
