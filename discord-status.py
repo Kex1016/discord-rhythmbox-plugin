@@ -6,11 +6,51 @@ gi.require_version('Notify', '0.7')
 from gi.repository import Notify, GObject, Peas, RB
 from pypresence import Presence
 from status_prefs import discord_status_prefs
+import requests
+from urllib.parse import quote_plus
 
 DEFAULT_APPID = "589905203533185064"
+STATSFM_URL = "https://api.stats.fm/api/v1/search/elastic?query=gamer&type=album%2Cartist%2Ctrack%2Cuser&limit=50"
+
+class APICache:
+    def __init__(self, cache_duration=600):
+        self.cache = {}
+        self.cache_duration = cache_duration # SECONDS
+        self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+
+    def fetch(self, query):
+        sanitized_query = self._sanitize_query(query)
+        current_time = time.time()
+
+        if query in self.cache:
+            response, timestamp = self.cache[sanitized_query]
+            if current_time - timestamp < self.cache_duration:
+                print("Returning cached response.")
+                return response
+
+        print("Fetching new response from API.")
+        response = self._make_api_call(sanitized_query)
+        self.cache[sanitized_query] = (response, current_time)
+        return response
+
+    def _make_api_call(self, query):
+        url = f"https://api.stats.fm/api/v1/search/elastic?query={query}&type=album&limit=5"
+        headers = {
+            'User-Agent': self.user_agent
+        }
+        response = requests.get(url, headers=headers)
+
+        if response.status_code == 200:
+            return response.json()
+        else:
+            response.raise_for_status()
+
+    def _sanitize_query(self, query):
+        return quote_plus(query)
 
 class DiscordStatus(GObject.Object, Peas.Activatable):
     object = GObject.property(type=GObject.Object)
+    statsfm = APICache()
 
     def __init__(self):
         super(DiscordStatus, self).__init__()
@@ -77,6 +117,7 @@ class DiscordStatus(GObject.Object, Peas.Activatable):
                 "album": "Unknown",
                 "title": "Unknown",
                 "artist": "Unknown",
+                "image": "rhythmbox",
                 "duration": 0
             }
 
@@ -84,6 +125,7 @@ class DiscordStatus(GObject.Object, Peas.Activatable):
         title = playing_entry.get_string(RB.RhythmDBPropType.TITLE)
         artist = playing_entry.get_string(RB.RhythmDBPropType.ARTIST)
         duration = playing_entry.get_ulong(RB.RhythmDBPropType.DURATION)
+        image = self.statsfm.fetch(f"{artist} {album}")["items"]["albums"][0]["image"]
 
         # If there is anything with less than 2 characters, Discord won't show our presence
         # So, lets add a cool empty unicode character to the end
@@ -99,6 +141,7 @@ class DiscordStatus(GObject.Object, Peas.Activatable):
             "album": album or "Unknown",
             "title": title or "Unknown",
             "artist": artist or "Unknown",
+            "image": image or "rhythmbox",
             "duration": duration or 0
         }
 
@@ -120,7 +163,7 @@ class DiscordStatus(GObject.Object, Peas.Activatable):
                 self.rpc.update(
                     state=song_info["title"][0:127],
                     details="Stream",
-                    large_image="rhythmbox",
+                    large_image=song_info["image"],
                     small_image="play",
                     small_text="Streaming",
                     start=int(time.time())
@@ -139,7 +182,7 @@ class DiscordStatus(GObject.Object, Peas.Activatable):
             self.rpc.update(
                 state=song_info["album"][0:127],
                 details=details[0:127],
-                large_image="rhythmbox",
+                large_image=song_info["image"],
                 small_image="play" if playing else "pause",
                 small_text="Playing" if playing else "Paused",
                 start=start_time if playing else None,
